@@ -105,6 +105,7 @@ func main() {
 	counts := map[string]int{}
 	lastUpdate := time.Now()
 	updateInterval := 500 * time.Millisecond // throttle updates
+	var lastAcct string
 
 	for it.First(); it.Valid(); it.Next() {
 		k := it.Key()
@@ -117,8 +118,25 @@ func main() {
 
 		// periodically update progress
 		if time.Since(lastUpdate) > updateInterval {
-			pct := progressFraction(k, prefix, upper) * 100
-			fmt.Printf("\rProcessed %d accounts, progress: %.2f%%", len(counts), pct)
+			// Account-level progress (approximate)
+			accFrac := progressFraction(k, prefix, upper) * 100
+
+			if acctStr == lastAcct {
+				// Storage-level progress for the current account
+				storageLower := append([]byte{prefix[0]}, acctHash...)
+				storageUpper := make([]byte, 1+32+32)
+				copy(storageUpper, storageLower)
+				for i := 33; i < 1+32+32; i++ {
+					storageUpper[i] = 0xff
+				}
+				storageFrac := progressFraction(k, storageLower, storageUpper)
+				fmt.Printf("\rAccount %s [%s%%] Storage [%s%%]  ", acctStr,
+					fmt.Sprintf("%.2f", accFrac),
+					fmt.Sprintf("%.2f", storageFrac*100))
+			} else {
+				fmt.Printf("\rAccount %s [%s%%]  ", acctStr, fmt.Sprintf("%.2f", accFrac))
+				lastAcct = acctStr
+			}
 			lastUpdate = time.Now()
 		}
 	}
