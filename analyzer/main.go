@@ -4,7 +4,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math/big"
 	"sort"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -33,6 +35,52 @@ func prefixEnd(prefix []byte) []byte {
 	return nil
 }
 
+// progressFraction returns a fraction [0,1] representing the position of current
+// lexicographically between lower and upper using arbitrary-precision arithmetic.
+func progressFraction(current, lower, upper []byte) float64 {
+	// determine maximum length
+	n := len(current)
+	if len(lower) > n {
+		n = len(lower)
+	}
+	if len(upper) > n {
+		n = len(upper)
+	}
+
+	// right-pad slices to length n
+	c := make([]byte, n)
+	copy(c, current) // original bytes at the left, zeros appended at the right
+	l := make([]byte, n)
+	copy(l, lower)
+	u := make([]byte, n)
+	copy(u, upper)
+
+	// convert to big.Int (big-endian)
+	num := new(big.Int).SetBytes(c)
+	lowerInt := new(big.Int).SetBytes(l)
+	upperInt := new(big.Int).SetBytes(u)
+
+	// compute fraction
+	num.Sub(num, lowerInt)                        // num = current - lower
+	denom := new(big.Int).Sub(upperInt, lowerInt) // denom = upper - lower
+
+	if denom.Sign() <= 0 {
+		return 1.0
+	}
+
+	// convert to float
+	fraction, _ := new(big.Rat).SetFrac(num, denom).Float64()
+
+	// clamp to [0,1]
+	if fraction < 0 {
+		return 0
+	}
+	if fraction > 1 {
+		return 1
+	}
+	return fraction
+}
+
 func main() {
 	db, err := pebble.Open("./snapshot/chaindata", &pebble.Options{})
 	if err != nil {
@@ -41,15 +89,13 @@ func main() {
 	defer db.Close()
 
 	fmt.Println("Counting storage slots per account...")
-	// copy prefix so we don't mutate the package-level constant
 	prefix := append([]byte{}, rawdb.SnapshotStoragePrefix...)
-	upper := prefixEnd(prefix) // may be nil; pebble accepts nil UpperBound
+	upper := prefixEnd(prefix)
 
 	iterOpts := &pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upper,
 	}
-
 	it, err := db.NewIter(iterOpts)
 	if err != nil {
 		log.Fatal(err)
@@ -57,17 +103,23 @@ func main() {
 	defer it.Close()
 
 	counts := map[string]int{}
+	lastUpdate := time.Now()
+	updateInterval := 500 * time.Millisecond // throttle updates
+
 	for it.First(); it.Valid(); it.Next() {
 		k := it.Key()
-		// sanity check
 		if len(k) < 1+32+32 {
 			continue
 		}
-		acctHash := k[1 : 1+32]                 // slice is valid until Next()
-		acctStr := hex.EncodeToString(acctHash) // copied to string immediately
+		acctHash := k[1 : 1+32]
+		acctStr := hex.EncodeToString(acctHash)
 		counts[acctStr]++
-		if counts[acctStr] == 1 {
-			fmt.Println("New account " + acctStr)
+
+		// periodically update progress
+		if time.Since(lastUpdate) > updateInterval {
+			pct := progressFraction(k, prefix, upper) * 100
+			fmt.Printf("\rProcessed %d accounts, progress: %.2f%%", len(counts), pct)
+			lastUpdate = time.Now()
 		}
 	}
 	if err := it.Error(); err != nil {
