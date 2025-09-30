@@ -155,29 +155,46 @@ func main() {
 		codeHash    string
 	}
 
-	var arr []kv
-	for acctHashHex, slotCount := range counts {
-		acctHashBytes, _ := hex.DecodeString(acctHashHex)
+	// Step 1: find top 50 accounts by slot count without fetching from DB
+	topN := 50
+	type acctCount struct {
+		hash  string
+		slots int
+	}
+	acctList := make([]acctCount, 0, len(counts))
+	for h, s := range counts {
+		acctList = append(acctList, acctCount{h, s})
+	}
 
-		// IMPORTANT: create a fresh slice so we don't modify the prefix constant
+	// sort descending by slot count
+	sort.Slice(acctList, func(i, j int) bool {
+		return acctList[i].slots > acctList[j].slots
+	})
+
+	// take top N accounts
+	if len(acctList) > topN {
+		acctList = acctList[:topN]
+	}
+
+	// Step 2: fetch data for top accounts from DB
+	var arr []kv
+	for _, a := range acctList {
+		acctHashBytes, _ := hex.DecodeString(a.hash)
+
+		// IMPORTANT: fresh slice so we don't modify prefix constant
 		accountKey := append([]byte{}, rawdb.SnapshotAccountPrefix...)
 		accountKey = append(accountKey, acctHashBytes...)
 
-		// Pebble Get returns (value, closer, error)
 		val, closer, err := db.Get(accountKey)
+		var codeHashHex string
 		if err != nil {
 			if err == pebble.ErrNotFound {
-				// account not found; skip
-				closer = nil
+				closer = nil // skip
 			} else {
-				log.Printf("db.Get error for %s: %v", acctHashHex, err)
+				log.Printf("db.Get error for %s: %v", a.hash, err)
 				continue
 			}
-		}
-
-		var codeHashHex string
-		if err == nil {
-			// Copy value before closing the closer because Pebble reuses buffers
+		} else {
 			accountVal := append([]byte(nil), val...)
 			closer.Close()
 
@@ -188,22 +205,14 @@ func main() {
 		}
 
 		arr = append(arr, kv{
-			accountHash: acctHashHex,
-			slots:       slotCount,
+			accountHash: a.hash,
+			slots:       a.slots,
 			codeHash:    codeHashHex,
 		})
 	}
 
-	// Sort descending by slot count
-	sort.Slice(arr, func(i, j int) bool {
-		return arr[i].slots > arr[j].slots
-	})
-
 	fmt.Println("Top accounts by storage slots:")
 	for i, a := range arr {
-		if i >= 50 { // top 50
-			break
-		}
 		fmt.Printf("%3d: accountHash=%s slots=%d codeHash=%s\n",
 			i+1, a.accountHash, a.slots, a.codeHash)
 	}
