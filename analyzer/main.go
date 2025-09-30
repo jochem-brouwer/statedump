@@ -211,6 +211,25 @@ func main() {
 		})
 	}
 
+	// Build map: slot count -> number of accounts
+	slotHistogram := make(map[int]int)
+	for _, slots := range counts {
+		slotHistogram[slots]++
+	}
+
+	// Collect slot counts and sort descending
+	slotCounts := make([]int, 0, len(slotHistogram))
+	for slots := range slotHistogram {
+		slotCounts = append(slotCounts, slots)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(slotCounts)))
+
+	// Print report
+	fmt.Println("\nStorage slots distribution (slotCount -> #accounts):")
+	for _, slots := range slotCounts {
+		fmt.Printf("%6d slots -> %d accounts\n", slots, slotHistogram[slots])
+	}
+
 	fmt.Println("Top accounts by storage slots:")
 	for i, a := range arr {
 		fmt.Printf("%3d: accountHash=%s slots=%d codeHash=%s\n",
