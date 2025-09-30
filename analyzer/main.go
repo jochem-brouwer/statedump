@@ -119,8 +119,8 @@ func main() {
 		// periodically update progress
 		if time.Since(lastUpdate) > updateInterval {
 			// Account-level progress (approximate)
-			accFrac := progressFraction(k, prefix, upper) * 100
-
+			accFrac := progressFraction(k, prefix, upper)
+			processedAccounts := len(counts) // how many unique accounts see
 			if acctStr == lastAcct {
 				// Storage-level progress for the current account
 				storageLower := append([]byte{prefix[0]}, acctHash...)
@@ -130,11 +130,13 @@ func main() {
 					storageUpper[i] = 0xff
 				}
 				storageFrac := progressFraction(k, storageLower, storageUpper)
-				fmt.Printf("\rAccount %s [%s%%] Storage [%s%%]  ", acctStr,
-					fmt.Sprintf("%.2f", accFrac),
-					fmt.Sprintf("%.2f", storageFrac*100))
+				// Print accounts processed + storage progress
+				fmt.Printf("\rAccounts %d processed [%6.2f%%] (This account storage: [%6.2f%%]) ",
+					processedAccounts, accFrac*100, storageFrac*100)
 			} else {
-				fmt.Printf("\rAccount %s [%s%%]  ", acctStr, fmt.Sprintf("%.2f", accFrac))
+				// Account-level progress only
+				fmt.Printf("\rAccounts %d processed [%6.2f%%]                                   ",
+					processedAccounts, accFrac*100)
 				lastAcct = acctStr
 			}
 			lastUpdate = time.Now()
