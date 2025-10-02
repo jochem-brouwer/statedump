@@ -6,7 +6,7 @@ import shutil
 # Code inspired from https://github.com/NethermindEth/gas-benchmarks
 container_name = "geth-bench"
 chain="mainnet"
-snapshot_dir = Path("execution-data")
+snapshot_dir = Path("snapshot")
 merged_dir = Path("overlay-merged")
 upper_dir  = Path("overlay-upper")
 work_dir   = Path("overlay-work")
@@ -53,16 +53,26 @@ def start_geth_container(chain: str, db_dir: Path, jwt_path: Path,
 
 def ensure_overlay_mount(lower: Path, upper: Path, work: Path, merged: Path):
     lower = lower.resolve(); upper = upper.resolve(); work = work.resolve(); merged = merged.resolve()
+
     if not lower.exists() or not any(lower.iterdir()):
         raise RuntimeError(f"Lower dir {lower} missing or empty; download snapshot first.")
     upper.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True, exist_ok=True)
     merged.mkdir(parents=True, exist_ok=True)
+
+    # --- check if already mounted ---
+    with open("/proc/mounts") as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == str(merged):
+                print("[INFO] Already mounted: skipping mount")
+                return
+
     mount_opts = f"lowerdir={lower},upperdir={upper},workdir={work}"
     cmd = ["mount", "-t", "overlay", "overlay", "-o", mount_opts, str(merged)]
     if hasattr(os, "geteuid") and os.geteuid() != 0 and shutil.which("sudo"):
         cmd = ["sudo"] + cmd
-    run(cmd)
+    subprocess.run(cmd, check=True)
 
 stop_and_remove_container(container_name)
 ensure_overlay_mount(lower=snapshot_dir, upper=upper_dir, work=work_dir, merged=merged_dir)
