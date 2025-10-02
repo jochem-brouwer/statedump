@@ -1,2 +1,4 @@
 snapshot/
 snapshot.tar.zst
+venv/
+.venv/
