@@ -2,3 +2,7 @@ snapshot/
 snapshot.tar.zst
 venv/
 .venv/
+jwt/
+overlay-merged/
+overlay-work/
+overlay-upper/
